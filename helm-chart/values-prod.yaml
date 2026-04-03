@@ -1,0 +1,10 @@
+namespace: prod
+replicaCount: 3
+activeColor: blue
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi

@@ -1,0 +1,23 @@
+image:
+  repository: mukacr.azurecr.io/reactapp
+  tag: latest
+  pullPolicy: Always
+
+# Blue-Green config
+activeColor: blue        # konsa live hai abhi
+blueTag: latest          # blue deployment ka image tag
+greenTag: latest         # green deployment ka image tag
+
+replicaCount: 1
+namespace: dev
+
+service:
+  port: 80
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi

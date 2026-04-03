@@ -1,0 +1,69 @@
+# BLUE Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-blue
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Release.Name }}
+    color: blue
+spec:
+  replicas: {{ if eq .Values.activeColor "blue" }}{{ .Values.replicaCount }}{{ else }}0{{ end }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+      color: blue
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+        color: blue
+    spec:
+      containers:
+      - name: reactapp
+        image: {{ .Values.image.repository }}:{{ .Values.blueTag }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: {{ .Values.resources.requests.cpu }}
+            memory: {{ .Values.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.resources.limits.cpu }}
+            memory: {{ .Values.resources.limits.memory }}
+---
+# GREEN Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-green
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Release.Name }}
+    color: green
+spec:
+  replicas: {{ if eq .Values.activeColor "green" }}{{ .Values.replicaCount }}{{ else }}0{{ end }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+      color: green
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+        color: green
+    spec:
+      containers:
+      - name: reactapp
+        image: {{ .Values.image.repository }}:{{ .Values.greenTag }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: {{ .Values.resources.requests.cpu }}
+            memory: {{ .Values.resources.requests.memory }}
+          limits:
+            cpu: {{ .Values.resources.limits.cpu }}
+            memory: {{ .Values.resources.limits.memory }}

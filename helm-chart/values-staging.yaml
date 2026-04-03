@@ -1,0 +1,10 @@
+namespace: staging
+replicaCount: 2
+activeColor: blue
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
