@@ -34,59 +34,59 @@ stages:
     - publish: image.tar.gz
       artifact: docker-image
 
-# # ─────────────────────────────────────────
-# # STAGE 2: TRIVY SCAN
-# # ─────────────────────────────────────────
-# - stage: Scan
-#   displayName: "Security Scan (Trivy)"
-#   dependsOn: Build
-#   jobs:
-#   - job: ScanJob
-#     steps:
-#     - download: current
-#       artifact: docker-image
+# ─────────────────────────────────────────
+# STAGE 2: TRIVY SCAN
+# ─────────────────────────────────────────
+- stage: Scan
+  displayName: "Security Scan (Trivy)"
+  dependsOn: Build
+  jobs:
+  - job: ScanJob
+    steps:
+    - download: current
+      artifact: docker-image
 
-#     - script: |
-#         docker load < $(Pipeline.Workspace)/docker-image/image.tar.gz
-#       displayName: Load Image
+    - script: |
+        docker load < $(Pipeline.Workspace)/docker-image/image.tar.gz
+      displayName: Load Image
 
-#     - script: |
-#         sudo apt-get install -y wget
-#         wget https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh
-#         sudo sh install.sh -b /usr/local/bin
-#         trivy image \
-#           --severity CRITICAL \
-#           --exit-code 1 \
-#           --no-progress \
-#           $(acrName).azurecr.io/$(imageName):$(tag)
-#       displayName: Trivy Scan
+    - script: |
+        sudo apt-get install -y wget
+        wget https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh
+        sudo sh install.sh -b /usr/local/bin
+        trivy image \
+          --severity CRITICAL \
+          --exit-code 1 \
+          --no-progress \
+          $(acrName).azurecr.io/$(imageName):$(tag)
+      displayName: Trivy Scan
 
-# # ─────────────────────────────────────────
-# # STAGE 3: PUSH TO ACR
-# # ─────────────────────────────────────────
-# - stage: Push
-#   displayName: "Push to ACR"
-#   dependsOn: Scan
-#   condition: succeeded()
-#   jobs:
-#   - job: PushJob
-#     steps:
-#     - download: current
-#       artifact: docker-image
+# ─────────────────────────────────────────
+# STAGE 3: PUSH TO ACR
+# ─────────────────────────────────────────
+- stage: Push
+  displayName: "Push to ACR"
+  dependsOn: Scan
+  condition: succeeded()
+  jobs:
+  - job: PushJob
+    steps:
+    - download: current
+      artifact: docker-image
 
-#     - script: |
-#         docker load < $(Pipeline.Workspace)/docker-image/image.tar.gz
-#       displayName: Load Image
+    - script: |
+        docker load < $(Pipeline.Workspace)/docker-image/image.tar.gz
+      displayName: Load Image
 
-#     - task: AzureCLI@2
-#       displayName: Login and Push to ACR
-#       inputs:
-#         azureSubscription: myserviceprinciple
-#         scriptType: bash
-#         scriptLocation: inlineScript
-#         inlineScript: |
-#           az acr login --name $(acrName)
-#           docker push $(acrName).azurecr.io/$(imageName):$(tag)
+    - task: AzureCLI@2
+      displayName: Login and Push to ACR
+      inputs:
+        azureSubscription: myserviceprinciple
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az acr login --name $(acrName)
+          docker push $(acrName).azurecr.io/$(imageName):$(tag)
 
 # # ─────────────────────────────────────────
 # # STAGE 4: DEPLOY DEV — Blue-Green (Auto)
