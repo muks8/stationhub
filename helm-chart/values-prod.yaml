@@ -1,6 +1,8 @@
 namespace: prod
 replicaCount: 3
 activeColor: blue
+service:
+  type: LoadBalancer        # ← yeh add karo
 resources:
   requests:
     cpu: 500m

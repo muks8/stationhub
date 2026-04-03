@@ -6,8 +6,8 @@ metadata:
 spec:
   selector:
     app: {{ .Release.Name }}
-    color: {{ .Values.activeColor }}     # ← yahi switch hota hai!
+    color: {{ .Values.activeColor }} # yahan se switch hogi
   ports:
   - port: 80
     targetPort: 80
-  type: ClusterIP
+  type: {{ .Values.service.type }}    # ← yahan se value aayegi

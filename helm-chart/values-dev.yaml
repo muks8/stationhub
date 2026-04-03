@@ -1,6 +1,8 @@
 namespace: dev
 replicaCount: 1
 activeColor: blue
+service:
+  type: LoadBalancer        # ← yeh add karo
 resources:
   requests:
     cpu: 100m
