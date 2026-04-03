@@ -88,180 +88,180 @@ stages:
           az acr login --name $(acrName)
           docker push $(acrName).azurecr.io/$(imageName):$(tag)
 
-# # ─────────────────────────────────────────
-# # STAGE 4: DEPLOY DEV — Blue-Green (Auto)
-# # ─────────────────────────────────────────
-# - stage: DeployDev
-#   displayName: "Deploy DEV (Blue-Green)"
-#   dependsOn: Push
-#   condition: succeeded()
-#   variables:
-#     activeColor: blue          # pehli baar blue live hoga
-#   jobs:
-#   - deployment: DeployDevJob
-#     environment: dev
-#     strategy:
-#       runOnce:
-#         deploy:
-#           steps:
-#           - checkout: self
+# ─────────────────────────────────────────
+# STAGE 4: DEPLOY DEV — Blue-Green (Auto)
+# ─────────────────────────────────────────
+- stage: DeployDev
+  displayName: "Deploy DEV (Blue-Green)"
+  dependsOn: Push
+  condition: succeeded()
+  variables:
+    activeColor: blue          # pehli baar blue live hoga
+  jobs:
+  - deployment: DeployDevJob
+    environment: dev
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
 
-#           - task: AzureCLI@2
-#             displayName: Blue-Green Deploy to DEV
-#             inputs:
-#               azureSubscription: myserviceprinciple
-#               scriptType: bash
-#               scriptLocation: inlineScript
-#               inlineScript: |
-#                 az aks get-credentials \
-#                   --resource-group mukeRG \
-#                   --name MYAKS \
-#                   --overwrite-existing
+          - task: AzureCLI@2
+            displayName: Blue-Green Deploy to DEV
+            inputs:
+              azureSubscription: myserviceprinciple
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az aks get-credentials \
+                  --resource-group mukeRG \
+                  --name MYAKS \
+                  --overwrite-existing
 
-#                 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+                curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-#                 # Namespace banao agar nahi hai
-#                 kubectl create namespace dev --dry-run=client -o yaml | kubectl apply -f -
+                # Namespace banao agar nahi hai
+                kubectl create namespace dev --dry-run=client -o yaml | kubectl apply -f -
 
-#                 # Pata karo abhi konsa color live hai
-#                 CURRENT=$(helm get values reactapp-dev -n dev --output json 2>/dev/null | \
-#                           python3 -c "import sys,json; print(json.load(sys.stdin).get('activeColor','blue'))" 2>/dev/null || echo "blue")
-#                 echo "Current active color: $CURRENT"
+                # Pata karo abhi konsa color live hai
+                CURRENT=$(helm get values reactapp-dev -n dev --output json 2>/dev/null | \
+                          python3 -c "import sys,json; print(json.load(sys.stdin).get('activeColor','blue'))" 2>/dev/null || echo "blue")
+                echo "Current active color: $CURRENT"
 
-#                 # Opposite color mein naya code deploy karo
-#                 if [ "$CURRENT" = "blue" ]; then
-#                   NEW_COLOR="green"
-#                 else
-#                   NEW_COLOR="blue"
-#                 fi
-#                 echo "Deploying to: $NEW_COLOR"
+                # Opposite color mein naya code deploy karo
+                if [ "$CURRENT" = "blue" ]; then
+                  NEW_COLOR="green"
+                else
+                  NEW_COLOR="blue"
+                fi
+                echo "Deploying to: $NEW_COLOR"
 
-#                 # Naye color pe deploy (traffic abhi nahi jaayega)
-#                 helm upgrade --install reactapp-dev ./helm-chart \
-#                   -f ./helm-chart/values-dev.yaml \
-#                   --set image.repository=$(acrName).azurecr.io/$(imageName) \
-#                   --set activeColor=$CURRENT \
-#                   --set ${NEW_COLOR}Tag=$(tag) \
-#                   --namespace dev \
-#                   --wait
+                # Naye color pe deploy (traffic abhi nahi jaayega)
+                helm upgrade --install reactapp-dev ./helm-chart \
+                  -f ./helm-chart/values-dev.yaml \
+                  --set image.repository=$(acrName).azurecr.io/$(imageName) \
+                  --set activeColor=$CURRENT \
+                  --set ${NEW_COLOR}Tag=$(tag) \
+                  --namespace dev \
+                  --wait
 
-#                 # Traffic switch karo naye color pe
-#                 helm upgrade reactapp-dev ./helm-chart \
-#                   -f ./helm-chart/values-dev.yaml \
-#                   --set image.repository=$(acrName).azurecr.io/$(imageName) \
-#                   --set activeColor=$NEW_COLOR \
-#                   --set ${NEW_COLOR}Tag=$(tag) \
-#                   --namespace dev \
-#                   --wait
+                # Traffic switch karo naye color pe
+                helm upgrade reactapp-dev ./helm-chart \
+                  -f ./helm-chart/values-dev.yaml \
+                  --set image.repository=$(acrName).azurecr.io/$(imageName) \
+                  --set activeColor=$NEW_COLOR \
+                  --set ${NEW_COLOR}Tag=$(tag) \
+                  --namespace dev \
+                  --wait
 
-#                 echo "DEV: Traffic switched to $NEW_COLOR (tag: $(tag))"
+                echo "DEV: Traffic switched to $NEW_COLOR (tag: $(tag))"
 
-# # ─────────────────────────────────────────
-# # STAGE 5: DEPLOY STAGING — Blue-Green (Approval)
-# # ─────────────────────────────────────────
-# - stage: DeployStaging
-#   displayName: "Deploy STAGING (Blue-Green)"
-#   dependsOn: DeployDev
-#   condition: succeeded()
-#   jobs:
-#   - deployment: DeployStagingJob
-#     environment: staging       # ← yahan approval rukegi pipeline
-#     strategy:
-#       runOnce:
-#         deploy:
-#           steps:
-#           - checkout: self
+# ─────────────────────────────────────────
+# STAGE 5: DEPLOY STAGING — Blue-Green (Approval)
+# ─────────────────────────────────────────
+- stage: DeployStaging
+  displayName: "Deploy STAGING (Blue-Green)"
+  dependsOn: DeployDev
+  condition: succeeded()
+  jobs:
+  - deployment: DeployStagingJob
+    environment: staging       # ← yahan approval rukegi pipeline
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
 
-#           - task: AzureCLI@2
-#             displayName: Blue-Green Deploy to STAGING
-#             inputs:
-#               azureSubscription: myserviceprinciple
-#               scriptType: bash
-#               scriptLocation: inlineScript
-#               inlineScript: |
-#                 az aks get-credentials \
-#                   --resource-group mukeRG \
-#                   --name MYAKS \
-#                   --overwrite-existing
+          - task: AzureCLI@2
+            displayName: Blue-Green Deploy to STAGING
+            inputs:
+              azureSubscription: myserviceprinciple
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az aks get-credentials \
+                  --resource-group mukeRG \
+                  --name MYAKS \
+                  --overwrite-existing
 
-#                 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+                curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-#                 kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
+                kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
 
-#                 CURRENT=$(helm get values reactapp-staging -n staging --output json 2>/dev/null | \
-#                           python3 -c "import sys,json; print(json.load(sys.stdin).get('activeColor','blue'))" 2>/dev/null || echo "blue")
+                CURRENT=$(helm get values reactapp-staging -n staging --output json 2>/dev/null | \
+                          python3 -c "import sys,json; print(json.load(sys.stdin).get('activeColor','blue'))" 2>/dev/null || echo "blue")
 
-#                 if [ "$CURRENT" = "blue" ]; then NEW_COLOR="green"; else NEW_COLOR="blue"; fi
+                if [ "$CURRENT" = "blue" ]; then NEW_COLOR="green"; else NEW_COLOR="blue"; fi
 
-#                 helm upgrade --install reactapp-staging ./helm-chart \
-#                   -f ./helm-chart/values-staging.yaml \
-#                   --set image.repository=$(acrName).azurecr.io/$(imageName) \
-#                   --set activeColor=$CURRENT \
-#                   --set ${NEW_COLOR}Tag=$(tag) \
-#                   --namespace staging \
-#                   --wait
+                helm upgrade --install reactapp-staging ./helm-chart \
+                  -f ./helm-chart/values-staging.yaml \
+                  --set image.repository=$(acrName).azurecr.io/$(imageName) \
+                  --set activeColor=$CURRENT \
+                  --set ${NEW_COLOR}Tag=$(tag) \
+                  --namespace staging \
+                  --wait
 
-#                 helm upgrade reactapp-staging ./helm-chart \
-#                   -f ./helm-chart/values-staging.yaml \
-#                   --set image.repository=$(acrName).azurecr.io/$(imageName) \
-#                   --set activeColor=$NEW_COLOR \
-#                   --set ${NEW_COLOR}Tag=$(tag) \
-#                   --namespace staging \
-#                   --wait
+                helm upgrade reactapp-staging ./helm-chart \
+                  -f ./helm-chart/values-staging.yaml \
+                  --set image.repository=$(acrName).azurecr.io/$(imageName) \
+                  --set activeColor=$NEW_COLOR \
+                  --set ${NEW_COLOR}Tag=$(tag) \
+                  --namespace staging \
+                  --wait
 
-#                 echo "STAGING: Traffic switched to $NEW_COLOR (tag: $(tag))"
+                echo "STAGING: Traffic switched to $NEW_COLOR (tag: $(tag))"
 
-# # ─────────────────────────────────────────
-# # STAGE 6: DEPLOY PROD — Blue-Green (Manager Approval)
-# # ─────────────────────────────────────────
-# - stage: DeployProd
-#   displayName: "Deploy PROD (Blue-Green)"
-#   dependsOn: DeployStaging
-#   condition: succeeded()
-#   jobs:
-#   - deployment: DeployProdJob
-#     environment: prod          # ← yahan manager approval rukegi
-#     strategy:
-#       runOnce:
-#         deploy:
-#           steps:
-#           - checkout: self
+# ─────────────────────────────────────────
+# STAGE 6: DEPLOY PROD — Blue-Green (Manager Approval)
+# ─────────────────────────────────────────
+- stage: DeployProd
+  displayName: "Deploy PROD (Blue-Green)"
+  dependsOn: DeployStaging
+  condition: succeeded()
+  jobs:
+  - deployment: DeployProdJob
+    environment: prod          # ← yahan manager approval rukegi
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
 
-#           - task: AzureCLI@2
-#             displayName: Blue-Green Deploy to PROD
-#             inputs:
-#               azureSubscription: myserviceprinciple
-#               scriptType: bash
-#               scriptLocation: inlineScript
-#               inlineScript: |
-#                 az aks get-credentials \
-#                   --resource-group mukeRG \
-#                   --name MYAKS \
-#                   --overwrite-existing
+          - task: AzureCLI@2
+            displayName: Blue-Green Deploy to PROD
+            inputs:
+              azureSubscription: myserviceprinciple
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az aks get-credentials \
+                  --resource-group mukeRG \
+                  --name MYAKS \
+                  --overwrite-existing
 
-#                 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+                curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-#                 kubectl create namespace prod --dry-run=client -o yaml | kubectl apply -f -
+                kubectl create namespace prod --dry-run=client -o yaml | kubectl apply -f -
 
-#                 CURRENT=$(helm get values reactapp-prod -n prod --output json 2>/dev/null | \
-#                           python3 -c "import sys,json; print(json.load(sys.stdin).get('activeColor','blue'))" 2>/dev/null || echo "blue")
+                CURRENT=$(helm get values reactapp-prod -n prod --output json 2>/dev/null | \
+                          python3 -c "import sys,json; print(json.load(sys.stdin).get('activeColor','blue'))" 2>/dev/null || echo "blue")
 
-#                 if [ "$CURRENT" = "blue" ]; then NEW_COLOR="green"; else NEW_COLOR="blue"; fi
+                if [ "$CURRENT" = "blue" ]; then NEW_COLOR="green"; else NEW_COLOR="blue"; fi
 
-#                 helm upgrade --install reactapp-prod ./helm-chart \
-#                   -f ./helm-chart/values-prod.yaml \
-#                   --set image.repository=$(acrName).azurecr.io/$(imageName) \
-#                   --set activeColor=$CURRENT \
-#                   --set ${NEW_COLOR}Tag=$(tag) \
-#                   --namespace prod \
-#                   --wait
+                helm upgrade --install reactapp-prod ./helm-chart \
+                  -f ./helm-chart/values-prod.yaml \
+                  --set image.repository=$(acrName).azurecr.io/$(imageName) \
+                  --set activeColor=$CURRENT \
+                  --set ${NEW_COLOR}Tag=$(tag) \
+                  --namespace prod \
+                  --wait
 
-#                 helm upgrade reactapp-prod ./helm-chart \
-#                   -f ./helm-chart/values-prod.yaml \
-#                   --set image.repository=$(acrName).azurecr.io/$(imageName) \
-#                   --set activeColor=$NEW_COLOR \
-#                   --set ${NEW_COLOR}Tag=$(tag) \
-#                   --namespace prod \
-#                   --wait
+                helm upgrade reactapp-prod ./helm-chart \
+                  -f ./helm-chart/values-prod.yaml \
+                  --set image.repository=$(acrName).azurecr.io/$(imageName) \
+                  --set activeColor=$NEW_COLOR \
+                  --set ${NEW_COLOR}Tag=$(tag) \
+                  --namespace prod \
+                  --wait
 
-#                 echo "PROD: Traffic switched to $NEW_COLOR (tag: $(tag))"
+                echo "PROD: Traffic switched to $NEW_COLOR (tag: $(tag))"
