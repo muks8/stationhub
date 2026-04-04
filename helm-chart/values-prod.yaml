@@ -1,8 +1,21 @@
 namespace: prod
 replicaCount: 3
 activeColor: blue
+
 service:
-  type: LoadBalancer        # ← yeh add karo
+  type: ClusterIP          # LoadBalancer se ClusterIP kiya
+
+ingress:
+  enabled: true
+  host: stationhub.in      # PROD root domain
+
+hpa:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  cpuThreshold: 60
+  memoryThreshold: 75
+
 resources:
   requests:
     cpu: 500m

@@ -6,8 +6,8 @@ metadata:
 spec:
   selector:
     app: {{ .Release.Name }}
-    color: {{ .Values.activeColor }} # yahan se switch hogi
+    color: {{ .Values.activeColor }}
   ports:
   - port: 80
     targetPort: 80
-  type: {{ .Values.service.type }}    # ← yahan se value aayegi
+  type: {{ .Values.service.type }}

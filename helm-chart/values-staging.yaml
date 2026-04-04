@@ -1,8 +1,21 @@
 namespace: staging
 replicaCount: 2
 activeColor: blue
+
 service:
-  type: LoadBalancer        # ← yeh add karo
+  type: ClusterIP          # LoadBalancer se ClusterIP kiya
+
+ingress:
+  enabled: true
+  host: staging.stationhub.in  # STAGING subdomain
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  cpuThreshold: 70
+  memoryThreshold: 80
+
 resources:
   requests:
     cpu: 200m

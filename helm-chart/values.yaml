@@ -4,16 +4,20 @@ image:
   pullPolicy: Always
 
 # Blue-Green config
-activeColor: blue        # konsa live hai abhi
-blueTag: latest          # blue deployment ka image tag
-greenTag: latest         # green deployment ka image tag
+activeColor: blue
+blueTag: latest
+greenTag: latest
 
 replicaCount: 1
 namespace: dev
 
 service:
   port: 80
-  type: LoadBalancer
+  type: ClusterIP          # LoadBalancer se ClusterIP kiya — Ingress handle karega
+
+ingress:
+  enabled: false           # default false — values-dev/staging/prod mein true hoga
+  host: ""
 
 resources:
   requests:
@@ -22,3 +26,11 @@ resources:
   limits:
     cpu: 250m
     memory: 256Mi
+
+# HPA config
+hpa:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 5
+  cpuThreshold: 70
+  memoryThreshold: 80
