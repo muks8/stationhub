@@ -1,0 +1,30 @@
+namespace: staging
+replicaCount: 2
+activeColor: blue
+
+service:
+  port: 8000
+  type: ClusterIP
+
+ingress:
+  enabled: true
+  host: api-staging.stationhub.in
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  cpuThreshold: 70
+  memoryThreshold: 80
+
+resources:
+  requests:
+    cpu: 300m
+    memory: 384Mi
+  limits:
+    cpu: 700m
+    memory: 768Mi
+
+env:
+  FRONTEND_URL: "https://staging.stationhub.in"
+  DB_NAME: "stationhub"

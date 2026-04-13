@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-svc
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: {{ .Release.Name }}
+    color: {{ .Values.activeColor }}
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: {{ .Values.service.type }}

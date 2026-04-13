@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  namespace: {{ .Values.namespace }}
+data:
+  DB_SERVER:    {{ .Values.env.DB_SERVER | quote }}
+  DB_NAME:      {{ .Values.env.DB_NAME | quote }}
+  DB_USER:      {{ .Values.env.DB_USER | quote }}
+  FRONTEND_URL: {{ .Values.env.FRONTEND_URL | quote }}

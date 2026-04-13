@@ -1,0 +1,5 @@
+apiVersion: v2
+name: stationhub-backend
+description: StationHub Backend - FastAPI Blue Green Deployment
+version: 0.1.0
+appVersion: "1.0.0"

@@ -1,0 +1,30 @@
+namespace: prod
+replicaCount: 3
+activeColor: blue
+
+service:
+  port: 8000
+  type: ClusterIP
+
+ingress:
+  enabled: true
+  host: api.stationhub.in
+
+hpa:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  cpuThreshold: 60
+  memoryThreshold: 75
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+env:
+  FRONTEND_URL: "https://stationhub.in"
+  DB_NAME: "stationhub"
