@@ -3,9 +3,10 @@ import os
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 
-JWT_SECRET  = os.getenv("JWT_SECRET", "changeme")
-JWT_EXPIRE  = int(os.getenv("JWT_EXPIRE_MINUTES", 1440))
-ALGORITHM   = "HS256"
+# .env load nahi kar rahe — OS env se directly
+JWT_SECRET = os.environ.get("JWT_SECRET", "changeme")
+JWT_EXPIRE = int(os.environ.get("JWT_EXPIRE_MINUTES", 1440))
+ALGORITHM  = "HS256"
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
