@@ -1,0 +1,328 @@
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - frontend/**
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  acrName: mukacr
+  imageName: stationhub-frontend
+  tag: $(Build.BuildId)
+  devServiceConnection: myserviceprinciple
+  prodServiceConnection: myserviceprinciple
+
+stages:
+
+# ─────────────────────────────────────────
+# STAGE 1: BUILD
+# ─────────────────────────────────────────
+- stage: Build
+  displayName: "Build Frontend Image"
+  jobs:
+  - job: BuildJob
+    steps:
+    - checkout: self
+
+    - script: |
+        docker build -t $(acrName).azurecr.io/$(imageName):$(tag) ./frontend
+      displayName: Build Docker Image
+
+    - script: |
+        docker save $(acrName).azurecr.io/$(imageName):$(tag) | gzip > image.tar.gz
+      displayName: Save Image as Artifact
+
+    - publish: image.tar.gz
+      artifact: docker-image
+
+# ─────────────────────────────────────────
+# STAGE 2: TRIVY SCAN
+# ─────────────────────────────────────────
+- stage: Scan
+  displayName: "Security Scan (Trivy)"
+  dependsOn: Build
+  jobs:
+  - job: ScanJob
+    steps:
+    - download: current
+      artifact: docker-image
+
+    - script: |
+        docker load < $(Pipeline.Workspace)/docker-image/image.tar.gz
+      displayName: Load Image
+
+    - script: |
+        sudo apt-get install -y wget
+        wget https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh
+        sudo sh install.sh -b /usr/local/bin
+        trivy image \
+          --severity CRITICAL \
+          --exit-code 1 \
+          --no-progress \
+          $(acrName).azurecr.io/$(imageName):$(tag)
+      displayName: Trivy Scan
+
+# ─────────────────────────────────────────
+# STAGE 3: PUSH TO ACR
+# ─────────────────────────────────────────
+- stage: Push
+  displayName: "Push to ACR"
+  dependsOn: Scan
+  condition: succeeded()
+  jobs:
+  - job: PushJob
+    steps:
+    - download: current
+      artifact: docker-image
+
+    - script: |
+        docker load < $(Pipeline.Workspace)/docker-image/image.tar.gz
+      displayName: Load Image
+
+    - task: AzureCLI@2
+      displayName: Login and Push to ACR
+      inputs:
+        azureSubscription: $(devServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az acr login --name $(acrName)
+          docker push $(acrName).azurecr.io/$(imageName):$(tag)
+
+# ─────────────────────────────────────────
+# STAGE 4: INFRA SETUP — AGIC + Cert Manager
+# ─────────────────────────────────────────
+- stage: InfraSetup
+  displayName: "Setup AGIC + Cert Manager"
+  dependsOn: Push
+  condition: succeeded()
+  jobs:
+  - job: InfraSetupJob
+    steps:
+    - task: AzureCLI@2
+      displayName: Verify AGIC and Install Cert Manager
+      inputs:
+        azureSubscription: $(devServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az aks get-credentials \
+            --resource-group mukeRG \
+            --name MYAKS \
+            --overwrite-existing
+
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+          # AGIC verify karo — already AKS addon hai
+          echo "Checking AGIC status..."
+          kubectl get pods -n kube-system | grep ingress-appgw
+          echo "✅ AGIC is running!"
+
+          # Cert Manager install karo
+          kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+
+          kubectl wait --namespace cert-manager \
+            --for=condition=ready pod \
+            --selector=app.kubernetes.io/instance=cert-manager \
+            --timeout=120s
+
+          echo "✅ Cert Manager ready!"
+
+          # App Gateway Public IP show karo
+          APP_GW_IP=$(az network public-ip show \
+            --resource-group mukeRG \
+            --name stationhub-appgw-ip \
+            --query ipAddress -o tsv)
+          echo "✅ Application Gateway IP: $APP_GW_IP"
+          echo "GoDaddy mein yeh IP lagao!"
+
+# ─────────────────────────────────────────
+# STAGE 5: DEPLOY DEV — Blue-Green + HPA (Auto)
+# ─────────────────────────────────────────
+- stage: DeployDev
+  displayName: "Deploy DEV Frontend (Blue-Green + HPA)"
+  dependsOn: InfraSetup
+  condition: succeeded()
+  jobs:
+  - deployment: DeployDevJob
+    environment: dev
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+
+          - task: AzureCLI@2
+            displayName: Blue-Green Deploy Frontend to DEV
+            inputs:
+              azureSubscription: $(devServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az aks get-credentials \
+                  --resource-group mukeRG \
+                  --name MYAKS \
+                  --overwrite-existing
+
+                curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+                kubectl create namespace dev --dry-run=client -o yaml | kubectl apply -f -
+
+                CURRENT=$(helm get values stationhub-frontend-dev -n dev \
+                  --output json 2>/dev/null | \
+                  python3 -c "import sys,json; print(json.load(sys.stdin).get('activeColor','blue'))" \
+                  2>/dev/null || echo "blue")
+                echo "Current active color: $CURRENT"
+
+                if [ "$CURRENT" = "blue" ]; then
+                  NEW_COLOR="green"
+                else
+                  NEW_COLOR="blue"
+                fi
+                echo "Deploying to: $NEW_COLOR"
+
+                helm upgrade --install stationhub-frontend-dev ./helm-chart/frontend \
+                  -f ./helm-chart/frontend/values-dev.yaml \
+                  --set image.repository=$(acrName).azurecr.io/$(imageName) \
+                  --set activeColor=$CURRENT \
+                  --set ${NEW_COLOR}Tag=$(tag) \
+                  --namespace dev \
+                  --wait
+
+                helm upgrade stationhub-frontend-dev ./helm-chart/frontend \
+                  -f ./helm-chart/frontend/values-dev.yaml \
+                  --set image.repository=$(acrName).azurecr.io/$(imageName) \
+                  --set activeColor=$NEW_COLOR \
+                  --set ${NEW_COLOR}Tag=$(tag) \
+                  --namespace dev \
+                  --wait
+
+                echo "✅ DEV Frontend: $NEW_COLOR live (tag: $(tag))"
+                kubectl get pods -n dev
+                kubectl get hpa -n dev
+                kubectl get ingress -n dev
+
+# ─────────────────────────────────────────
+# STAGE 6: DEPLOY STAGING — Blue-Green + HPA (Approval)
+# ─────────────────────────────────────────
+- stage: DeployStaging
+  displayName: "Deploy STAGING Frontend (Blue-Green + HPA)"
+  dependsOn: DeployDev
+  condition: succeeded()
+  jobs:
+  - deployment: DeployStagingJob
+    environment: staging          # ← yahan approval rukegi
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+
+          - task: AzureCLI@2
+            displayName: Blue-Green Deploy Frontend to STAGING
+            inputs:
+              azureSubscription: $(devServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az aks get-credentials \
+                  --resource-group mukeRG \
+                  --name MYAKS \
+                  --overwrite-existing
+
+                curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+                kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
+
+                CURRENT=$(helm get values stationhub-frontend-staging -n staging \
+                  --output json 2>/dev/null | \
+                  python3 -c "import sys,json; print(json.load(sys.stdin).get('activeColor','blue'))" \
+                  2>/dev/null || echo "blue")
+
+                if [ "$CURRENT" = "blue" ]; then NEW_COLOR="green"; else NEW_COLOR="blue"; fi
+
+                helm upgrade --install stationhub-frontend-staging ./helm-chart/frontend \
+                  -f ./helm-chart/frontend/values-staging.yaml \
+                  --set image.repository=$(acrName).azurecr.io/$(imageName) \
+                  --set activeColor=$CURRENT \
+                  --set ${NEW_COLOR}Tag=$(tag) \
+                  --namespace staging \
+                  --wait
+
+                helm upgrade stationhub-frontend-staging ./helm-chart/frontend \
+                  -f ./helm-chart/frontend/values-staging.yaml \
+                  --set image.repository=$(acrName).azurecr.io/$(imageName) \
+                  --set activeColor=$NEW_COLOR \
+                  --set ${NEW_COLOR}Tag=$(tag) \
+                  --namespace staging \
+                  --wait
+
+                echo "✅ STAGING Frontend: $NEW_COLOR live (tag: $(tag))"
+                kubectl get pods -n staging
+                kubectl get hpa -n staging
+                kubectl get ingress -n staging
+
+# ─────────────────────────────────────────
+# STAGE 7: DEPLOY PROD — Blue-Green + HPA (Manager Approval)
+# ─────────────────────────────────────────
+- stage: DeployProd
+  displayName: "Deploy PROD Frontend (Blue-Green + HPA)"
+  dependsOn: DeployStaging
+  condition: succeeded()
+  jobs:
+  - deployment: DeployProdJob
+    environment: prod             # ← yahan manager approval rukegi
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+
+          - task: AzureCLI@2
+            displayName: Blue-Green Deploy Frontend to PROD
+            inputs:
+              azureSubscription: $(prodServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az aks get-credentials \
+                  --resource-group mukeRG \
+                  --name MYAKS \
+                  --overwrite-existing
+
+                curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+                kubectl create namespace prod --dry-run=client -o yaml | kubectl apply -f -
+
+                CURRENT=$(helm get values stationhub-frontend-prod -n prod \
+                  --output json 2>/dev/null | \
+                  python3 -c "import sys,json; print(json.load(sys.stdin).get('activeColor','blue'))" \
+                  2>/dev/null || echo "blue")
+
+                if [ "$CURRENT" = "blue" ]; then NEW_COLOR="green"; else NEW_COLOR="blue"; fi
+
+                helm upgrade --install stationhub-frontend-prod ./helm-chart/frontend \
+                  -f ./helm-chart/frontend/values-prod.yaml \
+                  --set image.repository=$(acrName).azurecr.io/$(imageName) \
+                  --set activeColor=$CURRENT \
+                  --set ${NEW_COLOR}Tag=$(tag) \
+                  --namespace prod \
+                  --wait
+
+                helm upgrade stationhub-frontend-prod ./helm-chart/frontend \
+                  -f ./helm-chart/frontend/values-prod.yaml \
+                  --set image.repository=$(acrName).azurecr.io/$(imageName) \
+                  --set activeColor=$NEW_COLOR \
+                  --set ${NEW_COLOR}Tag=$(tag) \
+                  --namespace prod \
+                  --wait
+
+                echo "✅ PROD Frontend: $NEW_COLOR live (tag: $(tag))"
+                kubectl get pods -n prod
+                kubectl get hpa -n prod
+                kubectl get ingress -n prod
+                kubectl get certificate -n prod
