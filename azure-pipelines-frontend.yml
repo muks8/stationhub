@@ -117,8 +117,7 @@ stages:
 
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-          # AGIC verify karo — already AKS addon hai
-          echo "Checking AGIC status..."
+          # AGIC verify karo
           kubectl get pods -n kube-system | grep ingress-appgw
           echo "✅ AGIC is running!"
 
@@ -132,13 +131,16 @@ stages:
 
           echo "✅ Cert Manager ready!"
 
-          # App Gateway Public IP show karo
+          # ClusterIssuer ek baar apply karo
+          kubectl apply -f ./k8s/clusterissuer.yaml
+          echo "✅ ClusterIssuer applied!"
+
+          # App Gateway IP
           APP_GW_IP=$(az network public-ip show \
             --resource-group mukeRG \
             --name stationhub-appgw-ip \
             --query ipAddress -o tsv)
-          echo "✅ Application Gateway IP: $APP_GW_IP"
-          echo "GoDaddy mein yeh IP lagao!"
+          echo "✅ App Gateway IP: $APP_GW_IP"
 
 # ─────────────────────────────────────────
 # STAGE 5: DEPLOY DEV — Blue-Green + HPA (Auto)
