@@ -21,15 +21,12 @@ stages:
   - job: BuildJob
     steps:
     - checkout: self
-
     - script: |
         docker build -t $(acrName).azurecr.io/$(imageName):$(tag) ./backend
       displayName: Build Docker Image
-
     - script: |
         docker save $(acrName).azurecr.io/$(imageName):$(tag) | gzip > image.tar.gz
       displayName: Save Image as Artifact
-
     - publish: image.tar.gz
       artifact: docker-image
 
@@ -44,11 +41,9 @@ stages:
     steps:
     - download: current
       artifact: docker-image
-
     - script: |
         docker load < $(Pipeline.Workspace)/docker-image/image.tar.gz
       displayName: Load Image
-
     - script: |
         sudo apt-get install -y wget
         wget https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh
@@ -72,11 +67,9 @@ stages:
     steps:
     - download: current
       artifact: docker-image
-
     - script: |
         docker load < $(Pipeline.Workspace)/docker-image/image.tar.gz
       displayName: Load Image
-
     - task: AzureCLI@2
       displayName: Login and Push to ACR
       inputs:
@@ -86,9 +79,9 @@ stages:
         inlineScript: |
           az acr login --name $(acrName)
           docker push $(acrName).azurecr.io/$(imageName):$(tag)
-          
+
 # ─────────────────────────────────────────
-# STAGE 4: INFRA SETUP — AGIC + Cert Manager
+# STAGE 4: INFRA SETUP
 # ─────────────────────────────────────────
 - stage: InfraSetup
   displayName: "Setup AGIC + Cert Manager"
@@ -111,12 +104,9 @@ stages:
 
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-          # AGIC verify karo
-          echo "Checking AGIC status..."
           kubectl get pods -n kube-system | grep ingress-appgw
           echo "✅ AGIC is running!"
 
-          # Cert Manager install karo
           kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
 
           kubectl wait --namespace cert-manager \
@@ -125,13 +115,6 @@ stages:
             --timeout=120s
 
           echo "✅ Cert Manager ready!"
-
-          # App Gateway IP show karo
-          APP_GW_IP=$(az network public-ip show \
-            --resource-group mukeRG \
-            --name stationhub-appgw-ip \
-            --query ipAddress -o tsv)
-          echo "✅ Application Gateway IP: $APP_GW_IP"
 
 # ─────────────────────────────────────────
 # STAGE 5: DEPLOY DEV
@@ -148,7 +131,6 @@ stages:
         deploy:
           steps:
           - checkout: self
-
           - task: AzureCLI@2
             displayName: Blue-Green Deploy Backend to DEV
             inputs:
@@ -164,13 +146,6 @@ stages:
                 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
                 kubectl create namespace dev --dry-run=client -o yaml | kubectl apply -f -
-
-                # DB Secrets inject karo
-                kubectl create secret generic stationhub-backend-dev-secret \
-                  --from-literal=DB_PASSWORD="$(DB_PASSWORD)" \
-                  --from-literal=JWT_SECRET="$(JWT_SECRET)" \
-                  --namespace dev \
-                  --dry-run=client -o yaml | kubectl apply -f -
 
                 CURRENT=$(helm get values stationhub-backend-dev -n dev \
                   --output json 2>/dev/null | \
@@ -188,6 +163,8 @@ stages:
                   --set ${NEW_COLOR}Tag=$(tag) \
                   --set env.DB_SERVER="$(DB_SERVER)" \
                   --set env.DB_USER="$(DB_USER)" \
+                  --set env.DB_PASSWORD="$(DB_PASSWORD)" \
+                  --set env.JWT_SECRET="$(JWT_SECRET)" \
                   --namespace dev \
                   --wait
 
@@ -198,12 +175,13 @@ stages:
                   --set ${NEW_COLOR}Tag=$(tag) \
                   --set env.DB_SERVER="$(DB_SERVER)" \
                   --set env.DB_USER="$(DB_USER)" \
+                  --set env.DB_PASSWORD="$(DB_PASSWORD)" \
+                  --set env.JWT_SECRET="$(JWT_SECRET)" \
                   --namespace dev \
                   --wait
 
                 echo "✅ DEV Backend: $NEW_COLOR live (tag: $(tag))"
                 kubectl get pods -n dev
-                kubectl get hpa -n dev
                 kubectl get ingress -n dev
 
 # ─────────────────────────────────────────
@@ -221,7 +199,6 @@ stages:
         deploy:
           steps:
           - checkout: self
-
           - task: AzureCLI@2
             displayName: Blue-Green Deploy Backend to STAGING
             inputs:
@@ -238,12 +215,6 @@ stages:
 
                 kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
 
-                kubectl create secret generic stationhub-backend-staging-secret \
-                  --from-literal=DB_PASSWORD="$(DB_PASSWORD)" \
-                  --from-literal=JWT_SECRET="$(JWT_SECRET)" \
-                  --namespace staging \
-                  --dry-run=client -o yaml | kubectl apply -f -
-
                 CURRENT=$(helm get values stationhub-backend-staging -n staging \
                   --output json 2>/dev/null | \
                   python3 -c "import sys,json; print(json.load(sys.stdin).get('activeColor','blue'))" \
@@ -258,6 +229,8 @@ stages:
                   --set ${NEW_COLOR}Tag=$(tag) \
                   --set env.DB_SERVER="$(DB_SERVER)" \
                   --set env.DB_USER="$(DB_USER)" \
+                  --set env.DB_PASSWORD="$(DB_PASSWORD)" \
+                  --set env.JWT_SECRET="$(JWT_SECRET)" \
                   --namespace staging \
                   --wait
 
@@ -268,12 +241,13 @@ stages:
                   --set ${NEW_COLOR}Tag=$(tag) \
                   --set env.DB_SERVER="$(DB_SERVER)" \
                   --set env.DB_USER="$(DB_USER)" \
+                  --set env.DB_PASSWORD="$(DB_PASSWORD)" \
+                  --set env.JWT_SECRET="$(JWT_SECRET)" \
                   --namespace staging \
                   --wait
 
                 echo "✅ STAGING Backend: $NEW_COLOR live (tag: $(tag))"
                 kubectl get pods -n staging
-                kubectl get hpa -n staging
                 kubectl get ingress -n staging
 
 # ─────────────────────────────────────────
@@ -291,7 +265,6 @@ stages:
         deploy:
           steps:
           - checkout: self
-
           - task: AzureCLI@2
             displayName: Blue-Green Deploy Backend to PROD
             inputs:
@@ -308,12 +281,6 @@ stages:
 
                 kubectl create namespace prod --dry-run=client -o yaml | kubectl apply -f -
 
-                kubectl create secret generic stationhub-backend-prod-secret \
-                  --from-literal=DB_PASSWORD="$(DB_PASSWORD)" \
-                  --from-literal=JWT_SECRET="$(JWT_SECRET)" \
-                  --namespace prod \
-                  --dry-run=client -o yaml | kubectl apply -f -
-
                 CURRENT=$(helm get values stationhub-backend-prod -n prod \
                   --output json 2>/dev/null | \
                   python3 -c "import sys,json; print(json.load(sys.stdin).get('activeColor','blue'))" \
@@ -328,6 +295,8 @@ stages:
                   --set ${NEW_COLOR}Tag=$(tag) \
                   --set env.DB_SERVER="$(DB_SERVER)" \
                   --set env.DB_USER="$(DB_USER)" \
+                  --set env.DB_PASSWORD="$(DB_PASSWORD)" \
+                  --set env.JWT_SECRET="$(JWT_SECRET)" \
                   --namespace prod \
                   --wait
 
@@ -338,11 +307,12 @@ stages:
                   --set ${NEW_COLOR}Tag=$(tag) \
                   --set env.DB_SERVER="$(DB_SERVER)" \
                   --set env.DB_USER="$(DB_USER)" \
+                  --set env.DB_PASSWORD="$(DB_PASSWORD)" \
+                  --set env.JWT_SECRET="$(JWT_SECRET)" \
                   --namespace prod \
                   --wait
 
                 echo "✅ PROD Backend: $NEW_COLOR live (tag: $(tag))"
                 kubectl get pods -n prod
-                kubectl get hpa -n prod
                 kubectl get ingress -n prod
                 kubectl get certificate -n prod
