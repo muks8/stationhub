@@ -3,11 +3,12 @@ replicaCount: 3
 activeColor: blue
 
 service:
-  type: ClusterIP          # LoadBalancer se ClusterIP kiya
+  port: 80
+  type: ClusterIP
 
 ingress:
   enabled: true
-  host: stationhub.in      # PROD root domain
+  host: stationhub.in
 
 hpa:
   enabled: true
@@ -18,8 +19,21 @@ hpa:
 
 resources:
   requests:
-    cpu: 500m
-    memory: 512Mi
+    cpu: 100m        # ← 500m se 100m kiya
+    memory: 128Mi    # ← 512Mi se 128Mi kiya
   limits:
-    cpu: 1000m
-    memory: 1Gi
+    cpu: 250m        # ← 1000m se 250m kiya
+    memory: 256Mi    # ← 1Gi se 256Mi kiya
+
+probes:
+  liveness:
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    failureThreshold: 3
+    timeoutSeconds: 5
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    failureThreshold: 3
+    successThreshold: 1
+    timeoutSeconds: 5
