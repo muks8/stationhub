@@ -1,4 +1,4 @@
-namespace: prod
+namespace: prod-backend
 replicaCount: 3
 activeColor: blue
 
@@ -19,8 +19,8 @@ hpa:
 
 resources:
   requests:
-    cpu: 100m        # ← 500m se 100m kiya
-    memory: 128Mi    # ← 512Mi se 128Mi kiya
+    cpu: 100m
+    memory: 128Mi
   limits:
     cpu: 250m
     memory: 256Mi
@@ -43,3 +43,5 @@ env:
   DB_NAME: "stationhub"
   DB_SERVER: ""
   DB_USER: ""
+  DB_PASSWORD: ""
+  JWT_SECRET: ""

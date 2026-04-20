@@ -12,9 +12,6 @@ variables:
 
 stages:
 
-# ─────────────────────────────────────────
-# STAGE 1: BUILD
-# ─────────────────────────────────────────
 - stage: Build
   displayName: "Build Backend Image"
   jobs:
@@ -30,9 +27,6 @@ stages:
     - publish: image.tar.gz
       artifact: docker-image
 
-# ─────────────────────────────────────────
-# STAGE 2: TRIVY SCAN
-# ─────────────────────────────────────────
 - stage: Scan
   displayName: "Security Scan (Trivy)"
   dependsOn: Build
@@ -55,9 +49,6 @@ stages:
           $(acrName).azurecr.io/$(imageName):$(tag)
       displayName: Trivy Scan
 
-# ─────────────────────────────────────────
-# STAGE 3: PUSH TO ACR
-# ─────────────────────────────────────────
 - stage: Push
   displayName: "Push to ACR"
   dependsOn: Scan
@@ -80,9 +71,6 @@ stages:
           az acr login --name $(acrName)
           docker push $(acrName).azurecr.io/$(imageName):$(tag)
 
-# ─────────────────────────────────────────
-# STAGE 4: INFRA SETUP
-# ─────────────────────────────────────────
 - stage: InfraSetup
   displayName: "Setup AGIC + Cert Manager"
   dependsOn: Push
@@ -103,22 +91,16 @@ stages:
             --overwrite-existing
 
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
           kubectl get pods -n kube-system | grep ingress-appgw
           echo "✅ AGIC is running!"
 
           kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
-
           kubectl wait --namespace cert-manager \
             --for=condition=ready pod \
             --selector=app.kubernetes.io/instance=cert-manager \
             --timeout=120s
-
           echo "✅ Cert Manager ready!"
 
-# ─────────────────────────────────────────
-# STAGE 5: DEPLOY DEV
-# ─────────────────────────────────────────
 - stage: DeployDev
   displayName: "Deploy DEV Backend (Blue-Green)"
   dependsOn: InfraSetup
@@ -145,48 +127,53 @@ stages:
 
                 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-                kubectl create namespace dev --dry-run=client -o yaml | kubectl apply -f -
+                kubectl create namespace dev-backend \
+                  --dry-run=client -o yaml | kubectl apply -f -
 
-                CURRENT=$(helm get values stationhub-backend-dev -n dev \
-                  --output json 2>/dev/null | \
-                  python3 -c "import sys,json; print(json.load(sys.stdin).get('activeColor','blue'))" \
+                CURRENT=$(helm get values stationhub-backend-dev \
+                  -n dev-backend --output json 2>/dev/null | \
+                  python3 -c "import sys,json; \
+                  print(json.load(sys.stdin).get('activeColor','blue'))" \
                   2>/dev/null || echo "blue")
                 echo "Current: $CURRENT"
 
-                if [ "$CURRENT" = "blue" ]; then NEW_COLOR="green"; else NEW_COLOR="blue"; fi
+                if [ "$CURRENT" = "blue" ]; then
+                  NEW_COLOR="green"
+                else
+                  NEW_COLOR="blue"
+                fi
                 echo "Deploying to: $NEW_COLOR"
 
-                helm upgrade --install stationhub-backend-dev ./helm-chart/backend \
+                helm upgrade --install stationhub-backend-dev \
+                  ./helm-chart/backend \
                   -f ./helm-chart/backend/values-dev.yaml \
                   --set image.repository=$(acrName).azurecr.io/$(imageName) \
                   --set activeColor=$CURRENT \
                   --set ${NEW_COLOR}Tag=$(tag) \
-                  --set env.DB_SERVER="$(DB_SERVER)" \
-                  --set env.DB_USER="$(DB_USER)" \
-                  --set env.DB_PASSWORD="$(DB_PASSWORD)" \
-                  --set env.JWT_SECRET="$(JWT_SECRET)" \
-                  --namespace dev \
+                  --set "env.DB_SERVER=$(DB_SERVER)" \
+                  --set "env.DB_USER=$(DB_USER)" \
+                  --set "env.DB_PASSWORD=$(DB_PASSWORD)" \
+                  --set "env.JWT_SECRET=$(JWT_SECRET)" \
+                  --namespace dev-backend \
                   --wait
 
-                helm upgrade stationhub-backend-dev ./helm-chart/backend \
+                helm upgrade stationhub-backend-dev \
+                  ./helm-chart/backend \
                   -f ./helm-chart/backend/values-dev.yaml \
                   --set image.repository=$(acrName).azurecr.io/$(imageName) \
                   --set activeColor=$NEW_COLOR \
                   --set ${NEW_COLOR}Tag=$(tag) \
-                  --set env.DB_SERVER="$(DB_SERVER)" \
-                  --set env.DB_USER="$(DB_USER)" \
-                  --set env.DB_PASSWORD="$(DB_PASSWORD)" \
-                  --set env.JWT_SECRET="$(JWT_SECRET)" \
-                  --namespace dev \
+                  --set "env.DB_SERVER=$(DB_SERVER)" \
+                  --set "env.DB_USER=$(DB_USER)" \
+                  --set "env.DB_PASSWORD=$(DB_PASSWORD)" \
+                  --set "env.JWT_SECRET=$(JWT_SECRET)" \
+                  --namespace dev-backend \
                   --wait
 
-                echo "✅ DEV Backend: $NEW_COLOR live (tag: $(tag))"
-                kubectl get pods -n dev
-                kubectl get ingress -n dev
+                echo "✅ DEV Backend: $NEW_COLOR (tag: $(tag))"
+                kubectl get pods -n dev-backend
+                kubectl get ingress -n dev-backend
 
-# ─────────────────────────────────────────
-# STAGE 6: DEPLOY STAGING
-# ─────────────────────────────────────────
 - stage: DeployStaging
   displayName: "Deploy STAGING Backend (Blue-Green)"
   dependsOn: DeployDev
@@ -213,46 +200,51 @@ stages:
 
                 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-                kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
+                kubectl create namespace staging-backend \
+                  --dry-run=client -o yaml | kubectl apply -f -
 
-                CURRENT=$(helm get values stationhub-backend-staging -n staging \
-                  --output json 2>/dev/null | \
-                  python3 -c "import sys,json; print(json.load(sys.stdin).get('activeColor','blue'))" \
+                CURRENT=$(helm get values stationhub-backend-staging \
+                  -n staging-backend --output json 2>/dev/null | \
+                  python3 -c "import sys,json; \
+                  print(json.load(sys.stdin).get('activeColor','blue'))" \
                   2>/dev/null || echo "blue")
 
-                if [ "$CURRENT" = "blue" ]; then NEW_COLOR="green"; else NEW_COLOR="blue"; fi
+                if [ "$CURRENT" = "blue" ]; then
+                  NEW_COLOR="green"
+                else
+                  NEW_COLOR="blue"
+                fi
 
-                helm upgrade --install stationhub-backend-staging ./helm-chart/backend \
+                helm upgrade --install stationhub-backend-staging \
+                  ./helm-chart/backend \
                   -f ./helm-chart/backend/values-staging.yaml \
                   --set image.repository=$(acrName).azurecr.io/$(imageName) \
                   --set activeColor=$CURRENT \
                   --set ${NEW_COLOR}Tag=$(tag) \
-                  --set env.DB_SERVER="$(DB_SERVER)" \
-                  --set env.DB_USER="$(DB_USER)" \
-                  --set env.DB_PASSWORD="$(DB_PASSWORD)" \
-                  --set env.JWT_SECRET="$(JWT_SECRET)" \
-                  --namespace staging \
+                  --set "env.DB_SERVER=$(DB_SERVER)" \
+                  --set "env.DB_USER=$(DB_USER)" \
+                  --set "env.DB_PASSWORD=$(DB_PASSWORD)" \
+                  --set "env.JWT_SECRET=$(JWT_SECRET)" \
+                  --namespace staging-backend \
                   --wait
 
-                helm upgrade stationhub-backend-staging ./helm-chart/backend \
+                helm upgrade stationhub-backend-staging \
+                  ./helm-chart/backend \
                   -f ./helm-chart/backend/values-staging.yaml \
                   --set image.repository=$(acrName).azurecr.io/$(imageName) \
                   --set activeColor=$NEW_COLOR \
                   --set ${NEW_COLOR}Tag=$(tag) \
-                  --set env.DB_SERVER="$(DB_SERVER)" \
-                  --set env.DB_USER="$(DB_USER)" \
-                  --set env.DB_PASSWORD="$(DB_PASSWORD)" \
-                  --set env.JWT_SECRET="$(JWT_SECRET)" \
-                  --namespace staging \
+                  --set "env.DB_SERVER=$(DB_SERVER)" \
+                  --set "env.DB_USER=$(DB_USER)" \
+                  --set "env.DB_PASSWORD=$(DB_PASSWORD)" \
+                  --set "env.JWT_SECRET=$(JWT_SECRET)" \
+                  --namespace staging-backend \
                   --wait
 
-                echo "✅ STAGING Backend: $NEW_COLOR live (tag: $(tag))"
-                kubectl get pods -n staging
-                kubectl get ingress -n staging
+                echo "✅ STAGING Backend: $NEW_COLOR (tag: $(tag))"
+                kubectl get pods -n staging-backend
+                kubectl get ingress -n staging-backend
 
-# ─────────────────────────────────────────
-# STAGE 7: DEPLOY PROD
-# ─────────────────────────────────────────
 - stage: DeployProd
   displayName: "Deploy PROD Backend (Blue-Green)"
   dependsOn: DeployStaging
@@ -279,40 +271,48 @@ stages:
 
                 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-                kubectl create namespace prod --dry-run=client -o yaml | kubectl apply -f -
+                kubectl create namespace prod-backend \
+                  --dry-run=client -o yaml | kubectl apply -f -
 
-                CURRENT=$(helm get values stationhub-backend-prod -n prod \
-                  --output json 2>/dev/null | \
-                  python3 -c "import sys,json; print(json.load(sys.stdin).get('activeColor','blue'))" \
+                CURRENT=$(helm get values stationhub-backend-prod \
+                  -n prod-backend --output json 2>/dev/null | \
+                  python3 -c "import sys,json; \
+                  print(json.load(sys.stdin).get('activeColor','blue'))" \
                   2>/dev/null || echo "blue")
 
-                if [ "$CURRENT" = "blue" ]; then NEW_COLOR="green"; else NEW_COLOR="blue"; fi
+                if [ "$CURRENT" = "blue" ]; then
+                  NEW_COLOR="green"
+                else
+                  NEW_COLOR="blue"
+                fi
 
-                helm upgrade --install stationhub-backend-prod ./helm-chart/backend \
+                helm upgrade --install stationhub-backend-prod \
+                  ./helm-chart/backend \
                   -f ./helm-chart/backend/values-prod.yaml \
                   --set image.repository=$(acrName).azurecr.io/$(imageName) \
                   --set activeColor=$CURRENT \
                   --set ${NEW_COLOR}Tag=$(tag) \
-                  --set env.DB_SERVER="$(DB_SERVER)" \
-                  --set env.DB_USER="$(DB_USER)" \
-                  --set env.DB_PASSWORD="$(DB_PASSWORD)" \
-                  --set env.JWT_SECRET="$(JWT_SECRET)" \
-                  --namespace prod \
+                  --set "env.DB_SERVER=$(DB_SERVER)" \
+                  --set "env.DB_USER=$(DB_USER)" \
+                  --set "env.DB_PASSWORD=$(DB_PASSWORD)" \
+                  --set "env.JWT_SECRET=$(JWT_SECRET)" \
+                  --namespace prod-backend \
                   --wait
 
-                helm upgrade stationhub-backend-prod ./helm-chart/backend \
+                helm upgrade stationhub-backend-prod \
+                  ./helm-chart/backend \
                   -f ./helm-chart/backend/values-prod.yaml \
                   --set image.repository=$(acrName).azurecr.io/$(imageName) \
                   --set activeColor=$NEW_COLOR \
                   --set ${NEW_COLOR}Tag=$(tag) \
-                  --set env.DB_SERVER="$(DB_SERVER)" \
-                  --set env.DB_USER="$(DB_USER)" \
-                  --set env.DB_PASSWORD="$(DB_PASSWORD)" \
-                  --set env.JWT_SECRET="$(JWT_SECRET)" \
-                  --namespace prod \
+                  --set "env.DB_SERVER=$(DB_SERVER)" \
+                  --set "env.DB_USER=$(DB_USER)" \
+                  --set "env.DB_PASSWORD=$(DB_PASSWORD)" \
+                  --set "env.JWT_SECRET=$(JWT_SECRET)" \
+                  --namespace prod-backend \
                   --wait
 
-                echo "✅ PROD Backend: $NEW_COLOR live (tag: $(tag))"
-                kubectl get pods -n prod
-                kubectl get ingress -n prod
-                kubectl get certificate -n prod
+                echo "✅ PROD Backend: $NEW_COLOR (tag: $(tag))"
+                kubectl get pods -n prod-backend
+                kubectl get ingress -n prod-backend
+                kubectl get certificate -n prod-backend
